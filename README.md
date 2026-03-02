@@ -16,3 +16,5 @@ pip install groq dotenv
 ```
 
 groq is necessary for api calls, dotenv is necessary to call your .env file
+
+### DO NOT, UNDER ANY CIRCUMSTANCE, STAGE OR COMMIT THE .env FILE
