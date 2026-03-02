@@ -41,7 +41,8 @@ def get_random_response(start=None,stop=None): # indexed from 0, do start = None
 def count_votes(votes):
     vote_count = {}
     for vote in votes:
-        vote_count[vote] = vote_count.get(vote, 0) + 1
+        if vote != "abstain":
+            vote_count[vote] = vote_count.get(vote, 0) + 1
     if not vote_count:
         return None
     max_count = max(vote_count.values())
@@ -224,8 +225,8 @@ class Game:
                 if not matched and "abstain LLAMALLAMA" in response:
                     speaker_votes.append("abstain")
             chosen_id = random.choice(count_votes(speaker_votes)) if type(count_votes(speaker_votes)) is list else count_votes(speaker_votes)
-            if chosen_id != "abstain":
-                print(f"{"You were" if player_by_id[chosen_id].model == "user" else player_by_id[chosen_id].name + " was"} chosen to speak next.\n")
+            if chosen_id != None:
+                print(f"{"You were" if player_by_id[chosen_id].model == "user" else player_by_id[chosen_id].name + " was"} chosen to speak next.")
                 chosen_player = player_by_id[chosen_id]
                 response = ask(chosen_player.model, chosen_player.key, pl.reply_say(), pl.system(chosen_player.name, chosen_player.role, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players), 11)
                 if "abstain LLAMALLAMA" in response:
@@ -260,8 +261,8 @@ class Game:
         if chosen_vote != "abstain":
             voted_player = [p for p in self.alive_players if p.id == chosen_vote][0]
             voted_player.status = "dead"
-            update_history(f"{voted_player.name} was voted out by the town. They were {"not" if voted_player.role != "mafia" else ""} mafia.")
-            print(f"{"You were" if voted_player.model == "user" else voted_player.name + " was"} voted out by the town. They were {"not" if voted_player.role != "mafia" else ""} mafia.\n")
+            update_history(f"{voted_player.name} was voted out by the town. They were {"not " if voted_player.role != "mafia" else ""}mafia.")
+            print(f"{"You were" if voted_player.model == "user" else voted_player.name + " was"} voted out by the town. They were {"not " if voted_player.role != "mafia" else ""}mafia.\n")
 
 
     def run_game(self):
@@ -317,5 +318,5 @@ class Game:
         
         print(self.check_win())
 
-game = Game(False, 25, 10, 1, 1, .1, True)
+game = Game(False, 25, 10, 1, 1, 1, False)
 game.run_game()

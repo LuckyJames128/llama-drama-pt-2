@@ -12,8 +12,7 @@ Pretty self-explanatory. Copy paste from wherever you got them into the .env fil
 
 In your terminal: 
 ```
-pip install groq
-pip install dotenv
+pip install groq dotenv
 ```
 
 groq is necessary for api calls, dotenv is necessary to call your .env file
