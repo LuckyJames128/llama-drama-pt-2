@@ -36,7 +36,12 @@ def get_random_response(start=None,stop=None): # indexed from 0, do start = None
             lines = lines[start:]
         if stop is not None:
             lines = lines[:stop]
-    return random.choice(lines).strip() 
+    return random.choice(lines).strip()
+
+def get_name():
+    with open("names.txt", 'r') as file:
+        names = file.readlines()
+    return random.choice(names).strip()
 
 def count_votes(votes):
     vote_count = {}
@@ -79,15 +84,16 @@ def ask(model, keynum, user, system="", start=None, stop=None): # model = model,
         return input("\n")
     
     else:
-        raise ValueError("Invalid model name")
+        raise ValueError("Invalid model name: " + model)
         
 
 class Player:
-    def __init__(self, keynum, id, name, model, role, status="alive"):
+    def __init__(self, keynum, id, name, model, char, role, status="alive"):
         self.key = keynum # api_key number used
         self.id = id # 0-9, used for voting
         self.name = name 
         self.model = model
+        self.char = char # name of person they're emulating
         self.role = role
         self.status = status
 
@@ -136,7 +142,7 @@ class Game:
                     chosen_key = random.choice(other_models)
                     model = models.get(chosen_key)
             
-            self.players.append(Player(random.randint(1,4), i, f"Llama {i}", model, roles[i]))
+            self.players.append(Player(random.randint(1,4), i, f"Llama {i}", model, get_name(), roles[i]))
             if roles[i] == "mafia":
                 self.mafia_players.append(self.players[-1])
             if roles[i] == "doctor":
@@ -167,7 +173,7 @@ class Game:
         kill_votes = []
         for p in self.mafia_players:
             if p.status == "alive":
-                vote = ask(p.model, p.key, pl.mafia_night(self.alive_players), pl.system(p.name, p.role, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players),None,11)
+                vote = ask(p.model, p.key, pl.mafia_night(self.alive_players), pl.system(p.name, p.role, p.char, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players),None,11)
                 # Match votes against alive player names/ids (e.g. "Llama 9 LLAMALLAMA")
                 matched = False
                 for ap in self.alive_players:
@@ -175,7 +181,7 @@ class Game:
                         kill_votes.append(ap.id)
                         matched = True
                         break
-                if not matched and "abstain LLAMALLAMA" in vote:
+                if not matched and "abstain LLAMALLAMA".lower() in vote.lower():
                     kill_votes.append("abstain")
         return random.choice(count_votes(kill_votes)) if type(count_votes(kill_votes)) is list else count_votes(kill_votes)
         
@@ -184,14 +190,14 @@ class Game:
         saves = []
         for p in self.doctor_players:
             if p.status == "alive":
-                vote = ask(p.model, p.key, pl.doctor_night(self.alive_players), pl.system(p.name, p.role, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players),None,11)
+                vote = ask(p.model, p.key, pl.doctor_night(self.alive_players), pl.system(p.name, p.role, p.char, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players),None,11)
                 matched = False
                 for ap in self.alive_players:
                     if f"{ap.name} LLAMALLAMA" in vote or f"{ap.id} LLAMALLAMA" in vote:
                         saves.append(ap.id)
                         matched = True
                         break
-                if not matched and "abstain LLAMALLAMA" in vote:
+                if not matched and "abstain LLAMALLAMA".lower() in vote.lower():
                     saves.append("abstain")
         return [s for s in saves if s not in past and s != "abstain"]
         
@@ -201,8 +207,8 @@ class Game:
         for _ in range(2):
             for p in self.alive_players:
                 input("Press Enter") if self.pause else None
-                response = ask(p.model, p.key, pl.rr_reply_check(), pl.system(p.name, p.role, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players),11)
-                if "abstain LLAMALLAMA" in response:
+                response = ask(p.model, p.key, pl.rr_reply_check(), pl.system(p.name, p.role, p.char, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players),11)
+                if "abstain LLAMALLAMA".lower() in response.lower():
                     update_history(f"{p.name} abstained from speaking.")
                     print(f"{"You" if p.model == "user" else p.name} abstained from speaking.\n")
                 else:
@@ -212,24 +218,35 @@ class Game:
         
         # Voting phase: continue until message quota reached
         player_by_id = {p.id: p for p in self.alive_players}
-        while self.messages_this_day < self.messages_per_round:
+        skip = False
+        while self.messages_this_day < self.messages_per_round - 2 * (self.night_num - 1):
             speaker_votes = []
             for p in self.alive_players:
-                response = ask(p.model, p.key, pl.reply_vote(self.alive_players), pl.system(p.name, p.role, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players), start=None, stop=11)
+                response = ask(p.model, p.key, pl.reply_vote(self.alive_players), pl.system(p.name, p.role, p.char, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players), start=None, stop=11)
                 matched = False
                 for ap in self.alive_players:
                     if f"{ap.name} LLAMALLAMA" in response or f"{ap.id} LLAMALLAMA" in response:
                         speaker_votes.append(ap.id)
                         matched = True
                         break
-                if not matched and "abstain LLAMALLAMA" in response:
-                    speaker_votes.append("abstain")
-            chosen_id = random.choice(count_votes(speaker_votes)) if type(count_votes(speaker_votes)) is list else count_votes(speaker_votes)
+                    if not matched and "skip LLAMALLAMA".lower() in response.lower():
+                        speaker_votes.append("skip")
+                    elif not matched and "abstain LLAMALLAMA".lower() in response.lower():
+                        speaker_votes.append("abstain")
+                res = count_votes(speaker_votes)
+                if res == "skip":
+                    update_history("Discussion skipped; proceeding to vote.")
+                    print("Discussion skipped. Proceeding to vote.")
+                    skip = True
+                    break
+                chosen_id = random.choice(res) if type(res) is list else res
+                if skip:
+                    chosen_id = None
             if chosen_id != None:
                 print(f"{"You were" if player_by_id[chosen_id].model == "user" else player_by_id[chosen_id].name + " was"} chosen to speak next.")
                 chosen_player = player_by_id[chosen_id]
-                response = ask(chosen_player.model, chosen_player.key, pl.reply_say(), pl.system(chosen_player.name, chosen_player.role, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players), 11)
-                if "abstain LLAMALLAMA" in response:
+                response = ask(chosen_player.model, chosen_player.key, pl.reply_say(), pl.system(chosen_player.name, chosen_player.role, chosen_player.char, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players), 11)
+                if "abstain LLAMALLAMA".lower() in response.lower():
                     update_history(f"{chosen_player.name} abstained from speaking.")
                     print(f"\n{"You" if chosen_player.model == "user" else chosen_player.name} abstained from speaking.\n")
                     input("Press Enter") if self.pause else None
@@ -244,7 +261,7 @@ class Game:
         votes = []
         random.shuffle(self.alive_players)
         for p in self.alive_players: 
-            response = ask(p.model, p.key, pl.vote(self.alive_players), pl.system(p.name, p.role, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players), start=None, stop=11)
+            response = ask(p.model, p.key, pl.vote(self.alive_players), pl.system(p.name, p.role, p.char, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players), start=None, stop=11)
             matched = False
             for ap in self.alive_players:
                 if f"{ap.name} LLAMALLAMA" in response or f"{ap.id} LLAMALLAMA" in response:
@@ -253,16 +270,30 @@ class Game:
                     update_history(f"{p.name} voted for {response.replace(' LLAMALLAMA','')}.")
                     matched = True
                     break
-            if not matched and "abstain LLAMALLAMA" in response:
+            if not matched and "skip LLAMALLAMA".lower() in response.lower():
+                print(f"{"You" if p.model == "user" else p.name} voted to skip eliminating anyone.")
+                update_history(f"{p.name} voted to skip eliminating anyone.")
+                votes.append("skip")
+            elif not matched and "abstain LLAMALLAMA".lower() in response.lower():
                 print(f"{"You" if p.model == "user" else p.name} abstained from voting.")
-                update_history(f"{p.name} abstianed from voting.")
+                update_history(f"{p.name} abstained from voting.")
                 votes.append("abstain")
-        chosen_vote = random.choice(count_votes(votes)) if type(count_votes(votes)) is list else count_votes(votes)
-        if chosen_vote != "abstain":
+        res = count_votes(votes)
+        if type(res) is list or res == None:
+            chosen_vote = "no vote"
+        else:
+            chosen_vote = res
+        if chosen_vote == "skip":
+            update_history("Town voted to skip. No one was voted out.")
+            print("Town voted to skip. No one was voted out.\n")
+        elif chosen_vote != "no vote":
             voted_player = [p for p in self.alive_players if p.id == chosen_vote][0]
             voted_player.status = "dead"
-            update_history(f"{voted_player.name} was voted out by the town. They were {"not " if voted_player.role != "mafia" else ""}mafia.")
-            print(f"{"You were" if voted_player.model == "user" else voted_player.name + " was"} voted out by the town. They were {"not " if voted_player.role != "mafia" else ""}mafia.\n")
+            update_history(f"{voted_player.name} was voted out by the town. They were {"not " if voted_player.role != "mafia" else ""}mafia. There are {sum(1 for p in self.mafia_players if p.status == "alive")} mafia left.")
+            print(f"{"You were" if voted_player.model == "user" else voted_player.name + " was"} voted out by the town. They were {"not " if voted_player.role != "mafia" else ""}mafia. There are {sum(1 for p in self.mafia_players if p.status == "alive")} mafia left.\n")
+        else:
+            update_history("Vote tied. No one was voted out.")
+            print("Vote tied. No one was voted out.\n")
 
 
     def run_game(self):
@@ -273,9 +304,9 @@ class Game:
         players_by_id = {p.id: p for p in self.players}
 
         for p in self.players:
-            print(f"Player {p.id}: {p.name}, Role: {p.role}, Model: {p.model}") # debug
+            #print(f"Player {p.id}: {p.name}, Role: {p.role}, Model: {p.model}, Character: {p.char}") # debug
             if p.model == "user":
-                print(pl.system(p.name, p.role, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players)) # show system prompt to user
+                print(pl.system(p.name, p.role, p.char, self.mafia_num, self.doctor_num, self.player_num, self.mafia_players)) # show system prompt to user
 
         while not self.check_win():
             self.night_num += 1
@@ -290,6 +321,14 @@ class Game:
             if kill is None or kill == "abstain":
                 update_history("No kill tonight.")
                 print("No kill tonight.")
+                input("Press Enter") if self.pause else None
+            elif players_by_id[kill].status == "dead":
+                update_history(f"Llama {kill} was already dead.")
+                print(f"Llama {kill} was already dead.")
+                input("Press Enter") if self.pause else None
+            elif players_by_id[kill] in self.mafia_players:
+                update_history("The mafia attempted to commit suicide. We don't allow that though. No deaths tonight.")
+                print("The mafia attempted to commit suicide. We don't allow that though. No deaths tonight.")
                 input("Press Enter") if self.pause else None
             elif kill in saves:
                 update_history(f"No kills tonight. The doctor(s) saved someone.")
@@ -307,6 +346,9 @@ class Game:
             past_saves = saves
             self.update_alive()
 
+            if self.check_win():
+                break
+
             update_history(f"Day {self.night_num} begins.")
             print(f"Day {self.night_num} begins.")
 
@@ -317,6 +359,9 @@ class Game:
             self.update_alive()
         
         print(self.check_win())
-
-game = Game(False, 25, 10, 1, 1, 1, False)
+        print("\n\n\n")
+        for p in self.players:
+            print(f"Player {p.id}: {p.name}, Role: {p.role}, Model: {p.model}, Character: {p.char}")
+            
+game = Game(True, 23, 10, 2, 1, .01, True)
 game.run_game()
